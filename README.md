@@ -13,5 +13,5 @@ The file containing the model trained to predict the emotion arousal and valence
 ## data/afew_preprocessing/preprocessing.py
 The code used to preprocess the AFEW dataset
 
-## data/afew_preprocessing/merce_csv.py
+## data/afew_preprocessing/merge_csv.py
 The code used to merge all the csv files present in this folder.
