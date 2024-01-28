@@ -10,8 +10,8 @@ The file containing the model trained to predict the facial action unit.
 ## data/arousal_valence_pred_model.h5
 The file containing the model trained to predict the emotion arousal and valence.
 
-## data/afew_preprocessing/preprocessing.py
+## data/afew_dataset_preprocessed/preprocessing.py
 The code used to preprocess the AFEW dataset
 
-## data/afew_preprocessing/merge_csv.py
+## data/afew_dataset_preprocessed/merge_csv.py
 The code used to merge all the csv files present in this folder.
