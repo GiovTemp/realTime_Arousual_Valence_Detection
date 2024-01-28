@@ -10,6 +10,9 @@ The file containing the model trained to predict the facial action unit.
 ## data/arousal_valence_pred_model.h5
 The file containing the model trained to predict the emotion arousal and valence.
 
+## data/shape_predictor_68_face_landmarks.dat
+The file containing the model to detect the 68 facial landamrks.
+
 ## data/afew_dataset_preprocessed/preprocessing.py
 The code used to preprocess the AFEW dataset
 
