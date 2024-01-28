@@ -8,6 +8,7 @@ from tensorflow.keras.models import load_model
 import dlib
 import numpy as np
 from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
+import seaborn as sns
 
 def detect_landmarks(image_path):
     # Load the pre-trained face detector model
@@ -23,27 +24,14 @@ def detect_landmarks(image_path):
     faces = detector_face(gray)
 
     # Loop through each face and detect landmarks
-    landmarks_list = []
-    for face in faces:
-        landmarks = predictor(gray, face)
-        landmarks_coordinates = np.array([(landmarks.part(i).x, landmarks.part(i).y) for i in range(68)])
-        landmarks_list.append(landmarks_coordinates)
+    landmarks = predictor(gray, faces[0])
+    landmarks_coordinates = np.array([(landmarks.part(i).x, landmarks.part(i).y) for i in range(68)])
 
-        # Draw landmarks on the image
-        for i in range(68):
-            x, y = landmarks.part(i).x, landmarks.part(i).y
-            cv2.circle(image, (x, y), 2, (0, 255, 0), -1)  # Draw a green circle for each landmark
-            cv2.putText(image, str(i), (x + 5, y - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.3, (255, 0, 0), 1)
-
-        middle_point = np.mean(landmarks_coordinates, axis=0).astype(int)
-
-        # Draw a circle at the middle point on the image
-        cv2.circle(image, tuple(middle_point), 4, (0, 0, 255), -1)
-
-    return image, landmarks_list
+    return image, landmarks_coordinates
 
 
 def landmarks_combination_df(landmarks):
+    # Inizializzazione di liste per le combinazioni lineari di coordinate x e y
     vec_comb_lin_x = []
     vec_comb_lin_y = []
 
@@ -51,79 +39,96 @@ def landmarks_combination_df(landmarks):
     land_x = landmarks[:, 0]  # Estrae tutte le colonne 0 (coordinate x)
     land_y = landmarks[:, 1]  # Estrae tutte le colonne 1 (coordinate y)
 
+    # Iterazione su ogni punto di landmark (68 in totale)
     for i in range(68):
         sum_x = 0
         sum_y = 0
 
+        # Calcolo delle combinazioni lineari rispetto alle altre coordinate x e y
         for j in range(68):
             sum_x = sum_x + land_x[i] * (1 / land_x[j])
             sum_y = sum_y + land_y[i] * (1 / land_y[j])
 
+        # Aggiunta delle combinazioni lineari alle liste
         vec_comb_lin_x.append(sum_x)
         vec_comb_lin_y.append(sum_y)
 
+    # Concatenazione delle liste di combinazioni lineari di x e y
     all_landmark = vec_comb_lin_x + vec_comb_lin_y
 
-    return pd.DataFrame([all_landmark], columns=all_columns_names)
-
+    # Creazione di un DataFrame contenente tutte le combinazioni lineari
+    return pd.DataFrame([all_landmark])
 
 def analyze_frame(aus_sequence, model):
-    # Utilizza il modello per fare previsioni sulla sequenza
+    # Utilizza il modello per fare previsioni sul frame
     predictions = model.predict(aus_sequence)
 
-    # Estrai arousal e valence dalle previsioni
+    # Estrazione arousal e valence dalle previsioni
     arousal, valence = predictions[0][0], predictions[0][1]
 
     return arousal, valence
 
-
 def save_frame(frame, frame_index, folder="temp_frames"):
+    # Verifica se la cartella specificata esiste, altrimenti creala
     if not os.path.exists(folder):
         os.makedirs(folder)
+
+    # Genera il percorso del frame utilizzando l'indice e il formato 'frame_0.jpg', 'frame_1.jpg', ..., 'frame_9.jpg'
     frame_path = os.path.join(folder, f"frame_{frame_index % 10}.jpg")
+
+    # Salva il frame come un'immagine JPG nel percorso specificato
     cv2.imwrite(frame_path, frame)
+
+    # Restituisce il percorso del frame appena salvato
     return frame_path
 
 
-def analyze_frames_async(aus_array, model):
-    # Crea una sequenza ripetendo il frame
-    aus_np = np.array(aus_array)
-    #au_sequence = aus_np.reshape(1, 10, -1)
-    df = pd.DataFrame(aus_np)
+def analyze_frames_async(aus_list, emotion, model):
+    # Creazione di un DataFrame con le Action Units
+    test_df = pd.DataFrame([aus_list])
 
-    # X = aus_np[:, :-2]  # tutte le colonne tranne le ultime due
-    # y = aus_np[:, -2:]  # solo le ultime due colonne (arousal e valence)
-    #
-    num_samples = len(df) // 10
-    #
-    X_seq = np.array([df[i * 10:(i + 1) * 10] for i in range(num_samples)])
+    # Aggiunta di colonne per le emozioni
+    emotions_columns = ['happiness', 'sadness', 'surprise', 'fear', 'anger', 'neutral']
+    test_df[emotions_columns] = 0
+    test_df[emotion] = 1
 
-    arousal, valence = analyze_frame(X_seq, model)
+    # Analisi del frame utilizzando il modello
+    arousal, valence = analyze_frame(test_df, model)
 
+    # Aggiornamento delle variabili globali di arousal e valence
     global global_arousal_valence
     with lock:
         global_arousal_valence = (arousal, valence)
 
 def predict_emotion(prediction):
+    # Definizione di intervalli di indici associati a diverse emozioni
     emotions = {'happiness': [4, 9], 'sadness': [0, 2, 11], 'surprise': [0, 1, 3, 17], 'fear': [0, 1, 2, 3, 5, 13, 17], 'anger': [2, 3, 5, 14]}
 
+    # Inizializzazione dell'emozione predetta come 'neutral'
     emotion = 'neutral'
+
+    # Inizializzazione della differenza temporanea come 0
     diff_temp = 0
 
+    # Iterazione su ciascuna emozione e valutazione della predizione
     for key, value in emotions.items():
-      sum = 0
-      v_len = len(value)/2
+        sum = 0
+        v_len = len(value) / 2
 
-      for v in value:
-        if prediction[v] >= 0.48:
-          sum = sum + 1
+        # Calcolo del conteggio degli indici di predizione che superano una soglia
+        for v in value:
+            if prediction[v] >= 0.48:
+                sum += 1
 
-      diff = sum - v_len
+        # Calcolo della differenza rispetto alla metà del numero totale di indici
+        diff = sum - v_len
 
-      if diff >= diff_temp:
-        emotion = key
-        diff_temp = sum - v_len
+        # Aggiornamento dell'emozione prevista se la differenza è maggiore o uguale
+        if diff >= diff_temp:
+            emotion = key
+            diff_temp = diff
 
+    # Restituzione dell'emozione prevista
     return emotion
 
 def process_frame(frame, frame_index, model, scaler):
@@ -131,37 +136,35 @@ def process_frame(frame, frame_index, model, scaler):
     frame_path = save_frame(frame, frame_index)
     # Calcola i valori AU
 
+    # Stampa il percorso del frame salvato
     print(f'Frame path: {frame_path}')
 
+    # Rileva i landmark nell'immagine
     image, landmarks = detect_landmarks(frame_path)
 
+    # Verifica se sono stati rilevati landmark
     if len(landmarks) > 0:
-        landmarks_df = landmarks_combination_df(landmarks[0])
+        # Calcola le combinazioni lineari dei landmark e crea un DataFrame
+        landmarks_df = landmarks_combination_df(landmarks)
+
+        # Effettua la previsione delle Action Units utilizzando il modello
         prediction = au_pred_model.predict(landmarks_df)
 
-        print(predict_emotion(prediction[0]))
+        # Determina l'emozione basata sulla previsione delle Action Units
+        emotion = predict_emotion(prediction[0])
 
-        au_values = np.array(list(prediction[0]))
-        #au_values_scaled = scaler.fit_transform(au_values.reshape(1, -1))
+        # Stampa l'emozione predetta
+        print(emotion)
 
-        # Aggiungi i valori AU all'array e applica FIFO
-        aus_array.append(au_values)
+        # Analizza in modo asincrono i frame e aggiorna le variabili globali di arousal e valence
+        analyze_frames_async(prediction[0], emotion, model)
 
-        if len(aus_array) > 10:
-            aus_array.pop(0)
-        # Se abbiamo raccolto 10 frame, analizzali
-        if len(aus_array) == 10:
-            analyze_frames_async(aus_array.copy(), model)
 
+sns.set()
 
 # Variabili globali per memorizzare arousal e valence
 global_arousal_valence = (0.0, 0.0)
 lock = threading.Lock()
-
-columns_names = [f'Landmark_x_{i}' for i in range(68)]
-columns_names1 = [f'Landmark_y_{i}' for i in range(68)]
-
-all_columns_names = columns_names + columns_names1
 
 au_pred_model = load_model('data/au_pred_model.h5')
 arousal_valence_pred_model = load_model('data/arousal_valence_pred_model.h5')
@@ -170,18 +173,8 @@ arousal_valence_pred_model = load_model('data/arousal_valence_pred_model.h5')
 predictor_path = "data/shape_predictor_68_face_landmarks.dat"
 predictor = dlib.shape_predictor(predictor_path)
 
-# Percorso del file CSV
-file_path = 'data/new_aus_df.csv'
-
-# Carica il DataFrame dal file CSV
-new_aus_df = pd.read_csv(file_path)
-
-new_aus_df = new_aus_df.dropna()
-
-print(new_aus_df.head())
-
-# Inizializza la grafica di Matplotlib
-fig, ax = plt.subplots()
+# Inizializzazione di Matplotlib
+fig, ax = plt.subplots(figsize=(6, 6))
 canvas = FigureCanvas(fig)
 
 # Inizializza la cattura video
@@ -193,6 +186,7 @@ frame_index = 0
 aus_array = []
 
 arousal, valence = 0.0, 0.0  # Inizializza i valori fuori dal loop
+points_history = []
 
 while True:
     ret, frame = cap.read()
@@ -209,19 +203,31 @@ while True:
 
     with lock:
         arousal, valence = global_arousal_valence
+        points_history.append((valence, arousal))
     # Pulisci il grafico precedente
     ax.clear()
 
     # Definisci i limiti del grafico
-    ax.set_xlim(-1, 1)
-    ax.set_ylim(-1, 1)
 
+    ax.set_xlim(-10, 10)
+    ax.set_ylim(-10, 10)
+
+    # Disegna gli assi cartesiani
+    ax.axhline(0, color='black', linewidth=0.5)
+    ax.axvline(0, color='black', linewidth=0.5)
+
+
+    # Aggiungi la storia dei punti come mappa di calore
+    if points_history:
+        x, y = zip(*points_history)
+        ax.scatter(x, y, c=range(len(x)), cmap='viridis', alpha=0.6)
     # Aggiungi il punto al grafico
     ax.scatter(valence, arousal, color='blue')
     ax.text(0.5, 0.9, f"Arousal: {arousal:.2f}\nValence: {valence:.2f}", fontsize=12, transform=ax.transAxes)
 
     # Visualizza la griglia
     ax.grid(True)
+
 
     # Aggiorna il canvas di Matplotlib
     canvas.draw()
@@ -243,4 +249,3 @@ while True:
 
 cap.release()
 cv2.destroyAllWindows()
-
