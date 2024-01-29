@@ -19,5 +19,5 @@ The code used to preprocess the AFEW dataset
 ## data/afew_dataset_preprocessed/merge_csv.py
 The code used to merge all the csv files present in this folder.
 
-# AV_complete_code.ipynb
+## AV_complete_code.ipynb
 The file containing the complete code of all the steps of our project.
